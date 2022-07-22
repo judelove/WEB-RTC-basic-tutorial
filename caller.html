@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Basic camera</title>
+    <script type="text/javascript">
+        callerVideo = document.getElementById("callerVideo");
+        btn = document.getElementById("call_btn");
+        var peerConnection1;
+        var sdpConstraints = { 'mandatory': { 'OfferToReceiveAudio': true, 'OfferToReceiveVideo': true } };
+        var localStream;
+
+        let con = new WebSocket("ws://localhost:8080");
+
+
+        con.onopen = function (e) {
+            //some sort of registration
+            sendMessage(
+                JSON.stringify(
+                    {
+                        sender: "caller"
+                    }
+                ));
+        }
+
+        function sendMessage(msg) {
+            con.send(msg);
+        }
+
+        con.onmessage = function (event) {
+            event.data.text().then(
+                txt => {
+                    console.log(txt);
+                    //alert(`[meData received from server: ${txt}`);
+                    //gotDescription2(JSON.parse(txt));
+                    routeMessage(JSON.parse(txt));
+                });
+        };
+
+        con.onclose = function (event) {
+            if (event.wasClean) {
+                alert(`[close] Connection closed cleanly, code=${event.reason}`);
+            } else {
+                 alert('[close] Connection died');
+            }
+        };
+
+        con.onerror = function (error) {
+            alert(`[error] ${error.message}`);
+        };
+
+        function routeMessage(msg) {
+            if (msg.type == "ice-candidate") {
+                handleIceCandidate(msg.payload);
+            }
+            else if (msg.type == "offer-answer") {
+                gotRemoteDescription(msg.payload);
+            }
+            else if (msg.type == "offer") {
+
+            }
+        }
+
+        function start() {
+            callerVideo = document.getElementById("callerVideo");
+            btn = document.getElementById("btn");
+            navigator.getUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+            navigator.getUserMedia({ video: true, audio: true }, gotStream, function () { });
+            btn.disabled = true;
+        }
+        /*n to add the media stream to a video element on a page*/
+        function gotStream(stream) {
+            callerVideo.srcObject = stream;
+            callerVideo.play();
+            localStream = stream;
+        }
+
+
+        function call() {
+            videoTracks = localStream.getVideoTracks();
+            audioTracks = localStream.getVideoTracks();
+            servers = null; 
+            peerConnection1 = new RTCPeerConnection(servers);
+            localStream.getTracks().forEach(track => peerConnection1.addTrack(track, localStream));
+            peerConnection1.addStream(localStream);
+            peerConnection1.onicecandidate = iceCallback1;
+            peerConnection1.createOffer(createLocalDescription, function () { alert('an error occurred!'); });
+        }
+
+        function createLocalDescription(desc) {
+            peerConnection1.setLocalDescription(desc);
+            sendMessage(JSON.stringify(
+                {
+                    sender: "caller",
+                    recipient: "callee",
+                    type: "offer",
+                    payload: desc
+                }));
+
+        }
+
+        function gotRemoteDescription(desc) {
+            try {
+                peerConnection1.setRemoteDescription(desc);
+            }
+            catch (error) {
+                console.error(error);
+            }
+        }
+
+        function hangup() {
+            peerConnection1.close();
+            //Todo: discard the video object etc
+        }
+
+        function iceCallback1(event) {
+            if (event.candidate) {
+                sendMessage(
+                    JSON.stringify(
+                        {
+                            sender: "caller",
+                            recipient: "callee",
+                            type: "ice-candidate",
+                            payload: event.candidate
+                        }
+                    )
+                )
+                //peerConnection1.addIceCandidate(new RTCIceCandidate(event.candidate));
+            }
+        }
+
+        function handleIceCandidate(candidate) {
+            if (candidate) {
+                peerConnection1.addIceCandidate(new RTCIceCandidate(candidate));
+            }
+
+        }
+
+
+
+    </script>
+</head>
+<body>
+    <video id="callerVideo" autoplay="true"></video>
+    <button id="btn" onclick="start()">Start</button>
+    <button id="btn" onclick="call()">Call</button>
+    <button id="hangup" onclick="hangup()">Hangup</button>
+</body>
