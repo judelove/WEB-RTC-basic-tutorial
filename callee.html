@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Basic camera</title>
+    <script type="text/javascript">
+        var peerConnection2;
+        var sdpConstraints = { 'mandatory': { 'OfferToReceiveAudio': true, 'OfferToReceiveVideo': true } };
+       
+        let con = new WebSocket("ws://localhost:8080");
+
+
+        con.onopen = function (e) {
+            //some sort of registration
+            sendMessage(
+                JSON.stringify(
+                    {
+                        sender: "callee"
+                    }
+                ));
+            start();
+        }
+
+        function sendMessage(msg) {
+            con.send(msg);
+        }
+
+        con.onmessage = function (event) {
+            event.data.text().then(
+                txt => {
+                    console.log(txt);
+                    //alert(`[meData received from server: ${txt}`);
+                    //gotDescription2(JSON.parse(txt));
+                    routeMessage(JSON.parse(txt));
+                });
+            
+        }
+
+        con.onclose = function (event) {
+            if (event.wasClean) {
+                alert(`[close] Connection closed cleanly, code=${event.reason}`);
+            } else {
+                // e.g. server proces
+                // event.code is usually 1006 in this case
+                alert('[close] Connection died');
+            }
+        };
+
+        con.onerror = function (error) {
+            alert(`[error] ${error.message}`);
+        };
+
+        function routeMessage(msg) {
+            if (msg.type == "ice-candidate") {
+                handleIceCandidate(msg.payload);
+            }
+            else if (msg.type == "offer-answer") {
+                
+            }
+            else if (msg.type == "offer") {
+                gotRemoteDescription(msg.payload);
+            }
+        }
+
+
+        function gotRemoteStream(e) {
+            calleeVideo = document.getElementById("calleeVideo");
+            calleeVideo.srcObject = e.stream;
+            alert(e.stream.getVideoTracks().length);
+            //calleeVideo.play();
+        }
+
+        function start() {
+            servers = null; //{ iceServers: [ urls: "1123@localhost:8080"] };
+            peerConnection2 = new RTCPeerConnection(servers);
+            peerConnection2.onicecandidate = iceCallback;
+            peerConnection2.onaddstream = gotRemoteStream;
+            peerConnection2.ontrack = handleTrackEvent;
+        }
+
+        function handleTrackEvent(event) {
+            calleeVideo = document.getElementById("calleeVideo");
+            calleeVideo.srcObject = event.streams[0];
+            calleeVideo.play();
+        }
+
+        function gotRemoteDescription(desc) {
+            peerConnection2.setRemoteDescription(desc);
+            peerConnection2.createAnswer(gotLocalDescription, function () { alert('an error !'); }, sdpConstraints);
+
+        }
+
+        function gotLocalDescription(desc) {
+            peerConnection2.setLocalDescription(desc);
+            //SEND THE ANSWER HERE
+            sendMessage(JSON.stringify(
+                {
+                    sender: "callee",
+                    recipient: "caller",
+                    type: "offer-answer",
+                    payload: desc
+                }));
+            //peerConnection1.setRemoteDescription(desc);
+        }
+
+        function hangup() {
+
+            peerConnection2.close();
+        }
+
+        function handleIceCandidate(candidate) {
+            if (candidate) {
+                peerConnection2.addIceCandidate(new RTCIceCandidate(candidate));
+            }
+
+        }
+
+        function iceCallback(event) {
+            if (event.candidate) {
+                sendMessage(
+                    JSON.stringify(
+                        {
+                            sender: "callee",
+                            recipient: "caller",
+                            type: "ice-candidate",
+                            payload: event.candidate
+                        }
+                    )
+                )
+                //peerConnection1.addIceCandidate(new RTCIceCandidate(event.candidate));
+            }
+        }
+
+
+
+    </script>
+</head>
+<body>
+    
+    <button id="hangup" onclick="hangup()">Hangup</button>
+    <video id="calleeVideo" autoplay="true" />
+</body>
